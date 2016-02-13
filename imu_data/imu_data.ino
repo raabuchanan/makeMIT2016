@@ -1,6 +1,11 @@
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 
+#include "FastLED.h"
+#define LED_COUNT 16
+struct CRGB leds[LED_COUNT];
+#define LED_OUT       13
+
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     #include "Wire.h"
 #endif
@@ -8,7 +13,6 @@
 MPU6050 mpu;
 //MPU6050 mpu(0x69); // <-- use for AD0 high
 
-#define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
 bool blinkState = false;
 
 // MPU control/status vars
@@ -20,7 +24,7 @@ uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 // orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
+Quaternion quat;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
 VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
@@ -33,7 +37,14 @@ float rindex[WINDOW];
 float pindex[WINDOW];
 float yindex[WINDOW];
 
+float rOffset;
+float pOffset;
+float yOffset;
+
 float outputRPY[3];
+
+float roll_brightness;
+float pitch_brightness;
 
 int num;
 boolean firstTime;
@@ -53,6 +64,12 @@ void dmpDataReady() {
 // ================================================================
 
 void setup() {
+
+    LEDS.addLeds<WS2812B, LED_OUT, GRB>(leds, LED_COUNT);
+    LEDS.showColor(CRGB(0, 0, 0));
+    LEDS.setBrightness(93); // Limit max current draw to 1A
+    LEDS.show();
+  
     // join I2C bus (I2Cdev library doesn't do this automatically)
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
         Wire.begin();
@@ -109,8 +126,13 @@ void setup() {
     num = 0;
     firstTime = true;
 
-    // configure LED for output
-    pinMode(LED_PIN, OUTPUT);
+    rOffset = 0;
+    pOffset = 0;
+    yOffset = 0;
+
+    roll_brightness = 0;
+    pitch_brightness = 0;
+
 }
 
 // ================================================================
@@ -129,13 +151,16 @@ void loop() {
     fifoCount = mpu.getFIFOCount();
 
     // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+    if ((mpuIntStatus & 0x10) || fifoCount == 1024) 
+    {
         // reset so we can continue cleanly
         mpu.resetFIFO();
         Serial.println(F("FIFO overflow!"));
 
     // otherwise, check for DMP data ready interrupt (this should happen frequently)
-    } else if (mpuIntStatus & 0x02) {
+    } 
+    else if (mpuIntStatus & 0x02) 
+    {
         // wait for correct available data length, should be a VERY short wait
         while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 
@@ -147,16 +172,23 @@ void loop() {
         fifoCount -= packetSize;
 
         // display Euler angles in degrees
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetGravity(&gravity, &q);
-        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+        mpu.dmpGetQuaternion(&quat, fifoBuffer);
+        mpu.dmpGetGravity(&gravity, &quat);
+        mpu.dmpGetYawPitchRoll(ypr, &quat, &gravity);
+
+        if (firstTime == true && num == 0)
+        {
+          rOffset = ypr[1];
+          pOffset = ypr[2];
+          yOffset = ypr[0];
+        }
 
 
         if (firstTime == true && num <WINDOW)
           {
-            rindex[num] = ypr[1];
-            pindex[num] = ypr[2];
-            yindex[num] = ypr[0];
+            rindex[num] = ypr[1] - rOffset;
+            pindex[num] = ypr[2] - pOffset;
+            yindex[num] = ypr[0] - yOffset;
             
             num = num + 1;
           }
@@ -173,9 +205,9 @@ void loop() {
           
           firstTime = false;
 
-        rindex[num] = ypr[1];
-        pindex[num] = ypr[2];
-        yindex[num] = ypr[0];
+        rindex[num] = ypr[1] - rOffset;
+        pindex[num] = ypr[2] - pOffset;
+        yindex[num] = ypr[0] - yOffset;
 
         for (int i = 0; i < WINDOW; i++)
         {
@@ -193,11 +225,25 @@ void loop() {
         Serial.print("\t");
         Serial.print(outputRPY[1] * 180/M_PI);
         Serial.print("\t");
-        Serial.println(outputRPY[2] * 180/M_PI);
-       }
+        Serial.print(outputRPY[2] * 180/M_PI);
 
-        // blink LED to indicate activity
-        blinkState = !blinkState;
-        digitalWrite(LED_PIN, blinkState);
+       }
+    
+    for(int i = 0; i < LED_COUNT; i++)
+    {
+      roll_brightness = abs(255*outputRPY[0]/M_PI/2)*sin(2*M_PI*i/LED_COUNT);
+      pitch_brightness = abs(255*outputRPY[1]/M_PI/2)*cos(2*M_PI*i/LED_COUNT);
+
+      leds[i].r = (roll_brightness + pitch_brightness)/2;
+      leds[i].g = (roll_brightness + pitch_brightness)/2;
+      leds[i].b = (roll_brightness + pitch_brightness)/2;
+    }
+
+      Serial.print("\t");
+      Serial.print(roll_brightness);
+      Serial.print("\t");
+      Serial.println(pitch_brightness);
+      
+      LEDS.show();
     }
 }
