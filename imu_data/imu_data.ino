@@ -25,9 +25,18 @@ VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
 VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
 VectorFloat gravity;    // [x, y, z]            gravity vector
-float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
+#define WINDOW 10 //filter window
+
+float rindex[WINDOW];
+float pindex[WINDOW];
+float yindex[WINDOW];
+
+float outputRPY[3];
+
+int num;
+boolean firstTime;
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
@@ -51,13 +60,10 @@ void setup() {
     #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
         Fastwire::setup(400, true);
     #endif
-
-    // initialize serial communication
-    // (115200 chosen because it is required for Teapot Demo output, but it's
-    // really up to you depending on your project)
+    
     Serial.begin(115200);
     while (!Serial); // wait for Leonardo enumeration, others continue immediately
-
+    
     // initialize device
     mpu.initialize();
 
@@ -100,6 +106,9 @@ void setup() {
         Serial.println(F(")"));
     }
 
+    num = 0;
+    firstTime = true;
+
     // configure LED for output
     pinMode(LED_PIN, OUTPUT);
 }
@@ -141,12 +150,51 @@ void loop() {
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+
+
+        if (firstTime == true && num <WINDOW)
+          {
+            rindex[num] = ypr[1];
+            pindex[num] = ypr[2];
+            yindex[num] = ypr[0];
+            
+            num = num + 1;
+          }
+        else
+        {
+          if (num >= WINDOW -1)
+          {
+            num = 0;
+          }
+          else
+          {
+            num = num + 1;
+          }
+          
+          firstTime = false;
+
+        rindex[num] = ypr[1];
+        pindex[num] = ypr[2];
+        yindex[num] = ypr[0];
+
+        for (int i = 0; i < WINDOW; i++)
+        {
+          outputRPY[0] += rindex[i];
+          outputRPY[1] += pindex[i];
+          outputRPY[2] += yindex[i];
+        }
+
+          outputRPY[0] = outputRPY[0]/WINDOW;
+          outputRPY[1] = outputRPY[1]/WINDOW;
+          outputRPY[2] = outputRPY[2]/WINDOW;
+        
         Serial.print("RPY\t");
-        Serial.print(ypr[1] * 180/M_PI);
+        Serial.print(outputRPY[0] * 180/M_PI);
         Serial.print("\t");
-        Serial.print(ypr[2] * 180/M_PI);
+        Serial.print(outputRPY[1] * 180/M_PI);
         Serial.print("\t");
-        Serial.println(ypr[0] * 180/M_PI);
+        Serial.println(outputRPY[2] * 180/M_PI);
+       }
 
         // blink LED to indicate activity
         blinkState = !blinkState;
