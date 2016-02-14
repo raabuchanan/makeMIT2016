@@ -2,9 +2,9 @@
 #include "MPU6050_6Axis_MotionApps20.h"
 
 #include "FastLED.h"
-#define LED_COUNT 16
+#define LED_COUNT 32
 struct CRGB leds[LED_COUNT];
-#define LED_OUT       13
+#define LED_OUT       A3
 
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     #include "Wire.h"
@@ -231,8 +231,8 @@ void loop() {
     
     for(int i = 0; i < LED_COUNT; i++)
     {
-      roll_brightness = abs(255*outputRPY[0]/M_PI/2)*sin(2*M_PI*i/LED_COUNT);
-      pitch_brightness = abs(255*outputRPY[1]/M_PI/2)*cos(2*M_PI*i/LED_COUNT);
+      roll_brightness = min(4*max((255*outputRPY[0]/M_PI/2)*sin(2*M_PI*i/LED_COUNT + M_PI),0),255);
+      pitch_brightness = min(4*max((255*outputRPY[1]/M_PI/2)*cos(2*M_PI*i/LED_COUNT),0),255);
 
       leds[i].r = (roll_brightness + pitch_brightness)/2;
       leds[i].g = (roll_brightness + pitch_brightness)/2;
